@@ -181,76 +181,105 @@ def print_analysis_results(results):
 
 def create_sleep_boxplots(results):
     """
-    Create boxplots for overall, weekday, and weekend sleep durations.
+    Create a single boxplot comparing overall, weekday, and weekend sleep durations.
 
     Args:
         results: Dictionary containing sleep analysis results
     """
     import matplotlib.pyplot as plt
     import seaborn as sns
-
-    # Create figure with subplots
-    plt.figure(figsize=(12, 6))
+    from scipy.stats import f_oneway
 
     # Get the sleep DataFrame
     sleep_df = results['sleep_periods']
 
-    # Set style
+    # Prepare data for box plots
+    # Create a new column for plotting that distinguishes overall, weekday, and weekend
+    plot_df = pd.DataFrame({
+        'Duration': pd.concat([
+            sleep_df['duration'],  # Overall
+            sleep_df[~sleep_df['is_weekend']]['duration'],  # Weekday
+            sleep_df[sleep_df['is_weekend']]['duration']  # Weekend
+        ]),
+        'Category': ['Overall'] * len(sleep_df) +
+                    ['Weekday'] * sum(~sleep_df['is_weekend']) +
+                    ['Weekend'] * sum(sleep_df['is_weekend'])
+    })
+
+    # Set style and create figure
+    plt.figure(figsize=(10, 6))
     sns.set_style("whitegrid")
 
-    # Create boxplots
-    plt.subplot(1, 2, 1)
-    # Overall boxplot
-    sns.boxplot(y=sleep_df['duration'], color='orange')
-    plt.title('Overall Sleep Duration Distribution')
-    plt.ylabel('Hours of Sleep')
+    # Create boxplot
+    sns.boxplot(x='Category', y='Duration', data=plot_df,
+                hue='Category', palette=['orange', 'red', 'lightgreen'],
+                width=0.5, legend=False)
 
-    # Weekday vs Weekend boxplot
-    plt.subplot(1, 2, 2)
-    sns.boxplot(x='is_weekend', y='duration', data=sleep_df,
-                palette=['red', 'lightgreen'],
-                width=0.5)
-    plt.title('Weekday vs Weekend Sleep Duration')
-    plt.xlabel('Day Type')
-    plt.xticks([0, 1], ['Weekday', 'Weekend'])
+    plt.title('Sleep Duration Distribution')
+    plt.xlabel('Category')
     plt.ylabel('Hours of Sleep')
 
     # Add statistics as text
     stats = results['statistics']
+    all_stats = f"Overall (n={len(sleep_df)})\nMean: {sleep_df['duration'].mean():.2f}\nMedian: {sleep_df['duration'].median():.2f}"
     weekday_stats = f"Weekday (n={stats['weekday']['count']})\nMean: {stats['weekday']['mean']:.2f}\nMedian: {stats['weekday']['median']:.2f}"
     weekend_stats = f"Weekend (n={stats['weekend']['count']})\nMean: {stats['weekend']['mean']:.2f}\nMedian: {stats['weekend']['median']:.2f}"
 
-    plt.text(1.1, plt.ylim()[0], weekday_stats + '\n\n' + weekend_stats,
+    plt.text(2.1, plt.ylim()[0], all_stats + '\n\n' + weekday_stats + '\n\n' + weekend_stats,
              verticalalignment='bottom')
 
-    # Adjust layout
+    # Perform one-way ANOVA
+    weekday_sleep = sleep_df[~sleep_df['is_weekend']]['duration']
+    weekend_sleep = sleep_df[sleep_df['is_weekend']]['duration']
+    f_stat, anova_p = f_oneway(weekday_sleep, weekend_sleep)
+
+    # Add ANOVA results to the plot
+    # anova_text = f"One-way ANOVA:\nF-statistic: {f_stat:.4f}\np-value: {anova_p:.4f}"
+    # plt.text(1.8, plt.ylim()[1], anova_text,
+    #          verticalalignment='bottom')
+
     plt.tight_layout()
     plt.show()
 
+    return f_stat, anova_p
 
-# Example usage
+
+# Update the main code to include ANOVA results
 if __name__ == "__main__":
     # Analyze the data
     results = analyze_sleep_patterns('../data/categorized_output.csv')
 
-    # Create boxplots
-    create_sleep_boxplots(results)
+    # Create boxplot and get ANOVA results
+    f_stat, anova_p = create_sleep_boxplots(results)
 
     # Print results
     print_analysis_results(results)
 
-    # Statistical conclusion
+    # Statistical conclusions
     if len(results['sleep_periods']) > 0:
-        alpha = 0.05  # Using standard significance level
+        print("\nStatistical Analysis:")
+        print("\n1. T-test Results:")
+        alpha = 0.05
         if results['test_results']['p_value'] < alpha:
-            print("\nConclusion: Reject the null hypothesis.")
+            print("Reject the null hypothesis.")
             print("There is significant evidence of a difference in sleep patterns between weekdays and weekends.")
-            print(f"(p-value = {results['test_results']['p_value']:.4f} < {alpha})")
+            print(f"(t-test p-value = {results['test_results']['p_value']:.4f} < {alpha})")
         else:
-            print("\nConclusion: Fail to reject the null hypothesis.")
+            print("Fail to reject the null hypothesis.")
             print(
                 "There is insufficient evidence to conclude a difference in sleep patterns between weekdays and weekends.")
-            print(f"(p-value = {results['test_results']['p_value']:.4f} > {alpha})")
+            print(f"(t-test p-value = {results['test_results']['p_value']:.4f} > {alpha})")
+
+        print("\n2. ANOVA Results:")
+        if anova_p < alpha:
+            print("Reject the null hypothesis.")
+            print("There is significant evidence of a difference in sleep patterns between weekdays and weekends.")
+            print(f"(ANOVA p-value = {anova_p:.4f} < {alpha})")
+        else:
+            print("Fail to reject the null hypothesis.")
+            print(
+                "There is insufficient evidence to conclude a difference in sleep patterns between weekdays and weekends.")
+            print(f"(ANOVA p-value = {anova_p:.4f} > {alpha})")
 
         # Add coverage information
         total_days = (results['sleep_periods']['start'].max() - results['sleep_periods']['start'].min()).days + 1
